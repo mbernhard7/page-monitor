@@ -2,9 +2,14 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+.idea
 # C extensions
 *.so
+
+.DS_Store
+
+link_states.txt
+preferences.txt
 
 # Distribution / packaging
 .Python
