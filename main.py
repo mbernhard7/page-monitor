@@ -14,8 +14,8 @@ from selenium.webdriver.support import expected_conditions as ec
 
 
 def add_cookies(driver):
-    if exists(sys.path[0]+"cookies.pkl"):
-        cookies = pickle.load(open(sys.path[0]+"cookies.pkl", "rb"))
+    if exists(sys.path[0]+"/cookies.pkl"):
+        cookies = pickle.load(open(sys.path[0]+"/cookies.pkl", "rb"))
         added = 0
         for cookie in cookies:
             try:
@@ -154,6 +154,7 @@ def login_to_sakai(driver, link, username, password):
     driver.find_element_by_id('loginLink1').click()
     try:
         WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.CLASS_NAME, "textlink")))
+        print("Logged in with cookies")
         return driver
     except:
         WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.ID, "selCollege")))
@@ -167,10 +168,10 @@ def login_to_sakai(driver, link, username, password):
         driver.find_element_by_id('password').send_keys(password)
         time.sleep(1.5)
         driver.find_element_by_xpath("//input[@value='LOGIN']").click()
+        WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.ID, "duo_iframe")))
+        frame = driver.find_element_by_id('duo_iframe')
+        driver.switch_to.frame(frame)
         while True:
-            WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.ID, "duo_iframe")))
-            frame = driver.find_element_by_id('duo_iframe')
-            driver.switch_to.frame(frame)
             but = driver.find_element_by_class_name('push-label').find_element_by_tag_name('button')
             if but.is_enabled():
                 driver.find_element_by_class_name('remember_me_label_field').find_element_by_tag_name('input').click()
@@ -179,7 +180,7 @@ def login_to_sakai(driver, link, username, password):
                 while True:
                     try:
                         WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.CLASS_NAME, "textlink")))
-                        pickle.dump(driver.get_cookies(), open(sys.path[0]+"cookies.pkl", "wb"))
+                        pickle.dump(driver.get_cookies(), open(sys.path[0]+"/cookies.pkl", "wb"))
                         return driver
                     except:
                         pass
