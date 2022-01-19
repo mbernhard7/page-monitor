@@ -14,8 +14,8 @@ from selenium.webdriver.support import expected_conditions as ec
 
 
 def add_cookies(driver):
-    if exists("cookies.pkl"):
-        cookies = pickle.load(open("cookies.pkl", "rb"))
+    if exists(sys.path[0]+"cookies.pkl"):
+        cookies = pickle.load(open(sys.path[0]+"cookies.pkl", "rb"))
         added = 0
         for cookie in cookies:
             try:
@@ -179,7 +179,7 @@ def login_to_sakai(driver, link, username, password):
                 while True:
                     try:
                         WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.CLASS_NAME, "textlink")))
-                        pickle.dump(driver.get_cookies(), open("cookies.pkl", "wb"))
+                        pickle.dump(driver.get_cookies(), open(sys.path[0]+"cookies.pkl", "wb"))
                         return driver
                     except:
                         pass
