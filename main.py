@@ -1,13 +1,30 @@
 import re
 import sys
 import time
+import pickle
 import smtplib
 from difflib import ndiff
+from os.path import exists
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.select import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
+
+
+def add_cookies(driver):
+    if exists("cookies.pkl"):
+        cookies = pickle.load(open("cookies.pkl", "rb"))
+        added = 0
+        for cookie in cookies:
+            try:
+                driver.add_cookie(cookie)
+                added += 1
+            except:
+                pass
+        print('Added '+str(added)+" of "+str(len(cookies))+" cookies...")
+    return driver
 
 
 def make_driver():
@@ -51,6 +68,8 @@ def read_preferences():
                         link['link'] = piece.replace('link:', '')
                     elif piece.startswith('site:'):
                         link['site'] = piece.replace('site:', '')
+                    elif piece.startswith('name:'):
+                        link['name'] = piece.replace('name:', '')
                     elif piece.startswith('needs_credentials'):
                         link['needs_credentials'] = True
                     else:
@@ -62,7 +81,7 @@ def read_preferences():
         raise Exception('No links in preferences.')
     print('Got links:')
     for link in preferences['links']:
-        print('     ' + link['link'])
+        print('     ' + link['name']+": " + link['link'])
     if len(preferences['credentials']) > 0:
         print('Got credentials for:')
         for cred in preferences['credentials']:
@@ -81,7 +100,7 @@ def read_preferences():
     if len(missing_site_function) > 0:
         error_text = '\nMissing site function for:'
         for link in missing_site_function:
-            error_text = error_text + ('\n      ' + link['site'])
+            error_text = error_text + ('\n      ' + link)
         raise Exception(error_text)
     missing_login_function = list(
         filter(lambda l: l not in login_functions, [c['site'] for c in preferences['credentials']]))
@@ -128,6 +147,44 @@ def login_to_gradescope(driver, link, username, password):
         return driver
 
 
+def login_to_sakai(driver, link, username, password):
+    driver.get(link)
+    driver = add_cookies(driver)
+    WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.ID, "loginLink1")))
+    driver.find_element_by_id('loginLink1').click()
+    try:
+        WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.CLASS_NAME, "textlink")))
+        return driver
+    except:
+        WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.ID, "selCollege")))
+        time.sleep(1.5)
+        Select(driver.find_element_by_id('selCollege')).select_by_value('cmc.edu')
+        WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.ID, "dispname")))
+        time.sleep(1.5)
+        driver.find_element_by_id('dispname').send_keys(username)
+        WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.ID, "password")))
+        time.sleep(1.5)
+        driver.find_element_by_id('password').send_keys(password)
+        time.sleep(1.5)
+        driver.find_element_by_xpath("//input[@value='LOGIN']").click()
+        while True:
+            WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.ID, "duo_iframe")))
+            frame = driver.find_element_by_id('duo_iframe')
+            driver.switch_to.frame(frame)
+            but = driver.find_element_by_class_name('push-label').find_element_by_tag_name('button')
+            if but.is_enabled():
+                driver.find_element_by_class_name('remember_me_label_field').find_element_by_tag_name('input').click()
+                but.click()
+                WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.CLASS_NAME, "btn-cancel")))
+                while True:
+                    try:
+                        WebDriverWait(driver, 15).until(ec.presence_of_element_located((By.CLASS_NAME, "textlink")))
+                        pickle.dump(driver.get_cookies(), open("cookies.pkl", "wb"))
+                        return driver
+                    except:
+                        pass
+
+
 def check_gradescope_link(driver, link):
     driver.get(link)
     assignments = driver.find_element_by_id('assignments-student-table')
@@ -156,6 +213,20 @@ def check_plain_text_link(driver, link):
     return text.replace('\n', '').split('Last updated')[0]
 
 
+def check_sakai_blog(driver, link):
+    driver.get(link)
+    link = driver.find_element_by_xpath("//a[contains(text(), 'View All Blogs')]")
+    driver.get(link.get_attribute('href'))
+    blogs = driver.find_elements_by_class_name('blogwowEntryContainer')
+    output = "|"
+    for blog in blogs:
+        text = ''
+        for sp in blog.find_element_by_tag_name('h4').find_elements_by_tag_name('span'):
+            text += sp.text.strip()
+        output += text+"|"
+    return output
+
+
 def compare_results(results):
     changes = []
     with open(sys.path[0] + '/link_states.txt', 'r+') as f:
@@ -165,14 +236,19 @@ def compare_results(results):
             line = list(filter(lambda l: l.startswith(key), lines))
             if len(line) == 0:
                 newlines.append(key + '=' + results[key])
+                changes.append([key, results[key]])
             elif len(line) == 1:
                 value = line[0].replace(key + '=', '').strip()
-                previous_words = [val.strip() for val in value.split()]
-                new_words = [val.strip() for val in results[key].split()]
-                change_list = [d for d in ndiff(previous_words, new_words) if d.startswith('-') or d.startswith('+')]
-                if len(change_list) > 0:
-                    changes.append([key, ' '.join(change_list)])
-                    newlines = list(map(lambda x: key + '=' + results[key] if x == line[0] else x, newlines))
+                if value not in results[key]:
+                    prev_words = [val.strip() for val in value.split()]
+                    new_words = [val.strip() for val in results[key].split()]
+                    change_list = [d for d in ndiff(prev_words, new_words) if d.startswith('-') or d.startswith('+')]
+                    if len(change_list) > 0:
+                        changes.append([key, ' '.join(change_list)])
+                        newlines = list(map(lambda x: key + '=' + results[key] if x == line[0] else x, newlines))
+                else:
+                    if results[key] != value:
+                        changes.append([key, results[key].replace(value, '')])
     with open(sys.path[0] + '/link_states.txt', 'w') as f:
         for line in newlines:
             f.write(line + '\n')
@@ -181,11 +257,13 @@ def compare_results(results):
 
 email_regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
 login_functions = {
-    'Gradescope': login_to_gradescope
+    'Gradescope': login_to_gradescope,
+    'SakaiBlog': login_to_sakai
 }
 site_functions = {
     'Gradescope': check_gradescope_link,
-    'Plain text': check_plain_text_link
+    'Plain text': check_plain_text_link,
+    'SakaiBlog': check_sakai_blog,
 }
 
 
@@ -206,7 +284,7 @@ def main():
         results = {}
         failures = []
         for link in prefs['links']:
-            print('Checking ' + link['link'] + '...')
+            print('Checking ' + link['name'] + '...')
             if 'needs_credentials' in link:
                 print('Logging in to ' + link['site'] + '...')
                 try:
@@ -220,9 +298,9 @@ def main():
                         failures.append('Failed logging in.\n'+link['site']+'\n'+str(e))
                     break
             try:
-                results[link['link']] = site_functions[link['site']](driver, link['link'])
+                results[link['name']] = site_functions[link['site']](driver, link['link'])
             except Exception as e:
-                print('Failed checking ' + link['link'])
+                print('Failed checking ' + link['name'])
                 print(e)
                 if from_email:
                     failures.append('Failed checking. \n'+link['site']+'\n'+str(e))
@@ -231,7 +309,7 @@ def main():
             if len(changes) > 0 or len(failures) > 0:
                 change_string = 'Checking completed. Results:\n'
                 for change in changes:
-                    change_string = change_string + '     ' + change[0] + ': ' + change[1] + '\n'
+                    change_string = change_string + '     ' + change[0] + ' ' + change[1] + '\n'
                 for failure in failures:
                     change_string += '\n'+failure
                 subject = 'ALERT: Assignment Checker Found Changes'
