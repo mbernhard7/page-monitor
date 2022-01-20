@@ -250,6 +250,7 @@ def compare_results(results):
                 else:
                     if results[key] != value:
                         changes.append([key, results[key].replace(value, '')])
+                        newlines = list(map(lambda x: key + '=' + results[key] if x == line[0] else x, newlines))
     with open(sys.path[0] + '/link_states.txt', 'w') as f:
         for line in newlines:
             f.write(line + '\n')
